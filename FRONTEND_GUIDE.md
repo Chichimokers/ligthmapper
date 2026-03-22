@@ -1,33 +1,37 @@
 # Light Mapper - Guía para Desarrolladores Frontend
 
-## ¿Qué es Light Mapper?
+## Concepto de la App
 
-**Light Mapper** es una aplicación que permite a los usuarios reportar y consultar el estado del servicio eléctrico en diferentes ubicaciones geográficas.
+**Light Mapper** es una aplicación web que muestra en tiempo real el estado de la energía eléctrica en diferentes puntos geográficos. Los usuarios pueden:
 
-### Problema que resuelve
+- ✅ Ver inmediatamente en el mapa si hay luz o no en distintas zonas
+- ✅ Reportar su propio estado de luz tocando su ubicación en el mapa
+- ✅ Cambiar fácilmente su reporte (tiene luz / no tiene luz)
+- ✅ Ver todos los reportes de su comunidad de forma anónima
 
-En muchas zonas, los cortes de luz son frecuentes y recurrentes. La gente necesita saber:
-- ¿Hay luz en la zona X?
-- ¿Cuánto tiempo llevan sin luz?
-- ¿Volvió la luz en mi barrio?
+### ¿Por qué usar Light Mapper?
 
-### ¿Por qué deberías aportar tus datos?
+- **Saber antes de salir**: ¿Hay luz en el barrio X?
+- **Planificar**: ¿Cargo el celular ahora o espero?
+- **Ayudar a otros**: Tu reporte ayuda a tu comunidad
 
-Al reportar tu estado de luz, ayudas a toda tu comunidad:
-- **Información en tiempo real**: Otros saben si hay luz cerca de donde necesitan ir
-- **Toma de decisiones**: Saber si cargar el celular, usar el bombón, o hacer la compra
-- **Solidaridad comunitaria**: Ayudas a otros a planificar su día
+### Privacidad
 
-Tus datos son **anónimos** - solo se comparte tu ubicación y estado de luz, nunca tu identidad.
+Tu ubicación exacta **no se muestra públicamente**. Solo se comparte:
+- Si tienes luz o no
+- Un punto aproximado en el mapa (redondeado)
+
+Nunca se muestra tu email, nombre o ubicación exacta.
 
 ---
 
 ## Arquitectura de la API
 
-### URL Base
+### URLs
+
 ```
 Producción: https://tu-dominio.com
-Desarrollo: http://localhost:8000
+Local:      http://localhost:8000
 ```
 
 ### Endpoints
@@ -35,61 +39,96 @@ Desarrollo: http://localhost:8000
 | Método | Endpoint | Auth | Descripción |
 |--------|----------|------|-------------|
 | POST | `/api/v1/users/auth/google/` | No | Login con Google |
-| GET | `/api/v1/users/profile/` | JWT | Ver perfil propio |
-| PUT | `/api/v1/users/profile/` | JWT | Actualizar perfil y ubicación |
-| GET | `/api/v1/users/lights/` | No | Ver todos los reportes de luz |
-| GET | `/api/v1/users/admin/lights/` | Admin | Ver reportes con datos de usuario |
+| GET | `/api/v1/users/profile/` | JWT | Obtener perfil propio |
+| PUT | `/api/v1/users/profile/` | JWT | Actualizar ubicación y estado |
+| GET | `/api/v1/users/lights/` | No | Obtener todos los reportes |
+| POST | `/api/v1/users/token/refresh/` | No | Renovar token JWT |
+
+### Respuestas de Ejemplo
+
+**GET /api/v1/users/lights/**
+```json
+[
+  {
+    "latitude": 23.1136,
+    "longitude": -82.3666,
+    "has_power": true,
+    "last_power_update": "2026-03-22T10:00:00Z"
+  },
+  {
+    "latitude": 23.1200,
+    "longitude": -82.3700,
+    "has_power": false,
+    "last_power_update": "2026-03-22T09:45:00Z"
+  }
+]
+```
+
+**PUT /api/v1/users/profile/**
+```json
+// Request
+{
+  "latitude": 23.1136,
+  "longitude": -82.3666,
+  "has_power": true
+}
+
+// Response
+{
+  "id": 1,
+  "email": "user@gmail.com",
+  "latitude": 23.1136,
+  "longitude": -82.3666,
+  "has_power": true,
+  "last_power_update": "2026-03-22T10:30:00Z"
+}
+```
 
 ---
 
-## Implementación en React (Web + Móvil)
+## Implementación React
 
-### 1. Configuración Inicial
+### 1. Crear Proyecto
 
 ```bash
-npx create-react-app light-mapper
-# o
 npm create vite@latest light-mapper -- --template react
 cd light-mapper
-npm install axios @react-google-login/gapi googleapis
+npm install
+npm install axios react-router-dom leaflet react-leaflet @react-oauth/google
 ```
 
-### 2. Configuración de Google OAuth
+### 2. Estructura de Archivos
 
-#### Google Cloud Console
-1. Ve a https://console.cloud.google.com/apis/credentials
-2. Crea un OAuth Client ID (tipo: Aplicación web)
-3. Copia el **Client ID**
+```
+src/
+├── App.jsx
+├── main.jsx
+├── App.css
+├── services/
+│   └── api.js
+├── hooks/
+│   └── useAuth.jsx
+├── components/
+│   ├── Header.jsx
+│   ├── Map.jsx
+│   ├── PowerToggle.jsx
+│   └── LoginModal.jsx
+├── pages/
+│   └── MapPage.jsx
+└── index.css
+```
 
-#### En tu React App
+### 3. Configuración de Google OAuth
 
 ```bash
-npm install @react-oauth/google jwt-decode
+npm install @react-oauth/google
 ```
 
-```jsx
-// src/components/GoogleLoginButton.jsx
-import { GoogleLogin } from '@react-oauth/google';
+En Google Cloud Console:
+1. Crear OAuth Client ID (tipo: Aplicación web)
+2. Copiar el Client ID
 
-const GoogleLoginButton = ({ onSuccess, onError }) => {
-  return (
-    <GoogleLogin
-      client_id="TU_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
-      onSuccess={onSuccess}
-      onError={onError}
-      useOneTap
-      theme="outline"
-      size="large"
-      text="signin_with"
-      shape="rectangular"
-    />
-  );
-};
-
-export default GoogleLoginButton;
-```
-
-### 3. Servicio de API
+### 4. Archivo de Servicio API
 
 ```jsx
 // src/services/api.js
@@ -119,16 +158,17 @@ api.interceptors.response.use(
       const refreshToken = localStorage.getItem('refresh_token');
       if (refreshToken) {
         try {
-          const response = await axios.post(`${API_URL}/api/v1/users/token/refresh/`, {
-            refresh: refreshToken,
-          });
+          const response = await axios.post(
+            `${API_URL}/api/v1/users/token/refresh/`,
+            { refresh: refreshToken }
+          );
           localStorage.setItem('access_token', response.data.access);
           error.config.headers.Authorization = `Bearer ${response.data.access}`;
           return api(error.config);
-        } catch (refreshError) {
+        } catch {
           localStorage.removeItem('access_token');
           localStorage.removeItem('refresh_token');
-          window.location.href = '/login';
+          window.location.reload();
         }
       }
     }
@@ -139,13 +179,12 @@ api.interceptors.response.use(
 export default api;
 ```
 
-### 4. hooks/useAuth.js
+### 5. Hook de Autenticación
 
 ```jsx
-// src/hooks/useAuth.js
-import { useState, useEffect, createContext, useContext } from 'react';
+// src/hooks/useAuth.jsx
+import { useState, useEffect, createContext, useContext, useCallback } from 'react';
 import api from '../services/api';
-import jwt_decode from 'jwt-decode';
 
 const AuthContext = createContext(null);
 
@@ -160,8 +199,9 @@ export const AuthProvider = ({ children }) => {
         try {
           const response = await api.get('/api/v1/users/profile/');
           setUser(response.data);
-        } catch (error) {
-          console.log('Token inválido, esperando login...');
+        } catch {
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('refresh_token');
         }
       }
       setLoading(false);
@@ -169,30 +209,28 @@ export const AuthProvider = ({ children }) => {
     initAuth();
   }, []);
 
-  const loginWithGoogle = async (credential) => {
+  const loginWithGoogle = useCallback(async (credential) => {
     try {
       const response = await api.post('/api/v1/users/auth/google/', {
         id_token: credential,
       });
-      
       const { user, tokens } = response.data;
       localStorage.setItem('access_token', tokens.access);
       localStorage.setItem('refresh_token', tokens.refresh);
       setUser(user);
-      
       return { success: true, user };
     } catch (error) {
       return { success: false, error: error.response?.data };
     }
-  };
+  }, []);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     setUser(null);
-  };
+  }, []);
 
-  const updateProfile = async (data) => {
+  const updateProfile = useCallback(async (data) => {
     try {
       const response = await api.put('/api/v1/users/profile/', data);
       setUser(response.data);
@@ -200,7 +238,7 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       return { success: false, error: error.response?.data };
     }
-  };
+  }, []);
 
   return (
     <AuthContext.Provider value={{ user, loading, loginWithGoogle, logout, updateProfile }}>
@@ -212,751 +250,448 @@ export const AuthProvider = ({ children }) => {
 export const useAuth = () => useContext(AuthContext);
 ```
 
-### 5. Componentes de la Aplicación
-
-#### App.jsx (Layout Principal)
+### 6. Componente Principal de Mapa
 
 ```jsx
-// src/App.jsx
-import { AuthProvider } from './hooks/useAuth';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import LoginPage from './pages/LoginPage';
-import HomePage from './pages/HomePage';
-import ProfilePage from './pages/ProfilePage';
-import MapPage from './pages/MapPage';
-import './App.css';
-
-function App() {
-  return (
-    <AuthProvider>
-      <BrowserRouter>
-        <div className="app">
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/profile" element={<ProfilePage />} />
-            <Route path="/map" element={<MapPage />} />
-          </Routes>
-        </div>
-      </BrowserRouter>
-    </AuthProvider>
-  );
-}
-
-export default App;
-```
-
-#### LoginPage.jsx
-
-```jsx
-// src/pages/LoginPage.jsx
-import { GoogleLogin } from '@react-oauth/google';
+// src/pages/MapPage.jsx
+import { useState, useEffect, useCallback } from 'react';
+import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet';
 import { useAuth } from '../hooks/useAuth';
-import { useNavigate } from 'react-router-dom';
-import './LoginPage.css';
+import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
+import api from '../services/api';
+import 'leaflet/dist/leaflet.css';
+import './MapPage.css';
 
-const LoginPage = () => {
-  const { loginWithGoogle } = useAuth();
-  const navigate = useNavigate();
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
+const MapPage = () => {
+  const { user, loginWithGoogle, logout, updateProfile } = useAuth();
+  const [lights, setLights] = useState([]);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [isSettingLocation, setIsSettingLocation] = useState(false);
+  const [mapCenter, setMapCenter] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState(null);
+
+  useEffect(() => {
+    loadLights();
+    getUserLocation();
+  }, []);
+
+  useEffect(() => {
+    if (user?.latitude && user?.longitude && !mapCenter) {
+      setMapCenter([user.latitude, user.longitude]);
+    }
+  }, [user]);
+
+  const loadLights = async () => {
+    try {
+      const response = await api.get('/api/v1/users/lights/');
+      setLights(response.data);
+    } catch (error) {
+      console.error('Error cargando luces:', error);
+    }
+  };
+
+  const getUserLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          if (!mapCenter) {
+            setMapCenter([
+              position.coords.latitude,
+              position.coords.longitude
+            ]);
+          }
+        },
+        () => {
+          if (!mapCenter) {
+            setMapCenter([23.1136, -82.3666]);
+          }
+        }
+      );
+    } else if (!mapCenter) {
+      setMapCenter([23.1136, -82.3666]);
+    }
+  };
+
+  const handleMapClick = useCallback(async (e) => {
+    if (!user || !isSettingLocation) return;
+    
+    setLoading(true);
+    const result = await updateProfile({
+      latitude: parseFloat(e.latlng.lat.toFixed(7)),
+      longitude: parseFloat(e.latlng.lng.toFixed(7)),
+      has_power: user.has_power ?? false,
+    });
+    
+    if (result.success) {
+      setMessage('Ubicación guardada');
+      setIsSettingLocation(false);
+      loadLights();
+    }
+    setLoading(false);
+  }, [user, isSettingLocation, updateProfile]);
+
+  const togglePower = async () => {
+    if (!user) {
+      setShowLoginModal(true);
+      return;
+    }
+    
+    if (!user.latitude || !user.longitude) {
+      setMessage('Primero selecciona tu ubicación en el mapa');
+      setIsSettingLocation(true);
+      return;
+    }
+    
+    setLoading(true);
+    const result = await updateProfile({
+      has_power: !user.has_power,
+    });
+    
+    if (result.success) {
+      setMessage(result.user.has_power ? '💡 Reportado: Tienes luz' : '🔌 Reportado: Sin luz');
+      loadLights();
+    }
+    setLoading(false);
+    setTimeout(() => setMessage(null), 3000);
+  };
 
   const handleGoogleSuccess = async (response) => {
     const result = await loginWithGoogle(response.credential);
     if (result.success) {
-      navigate('/');
+      setShowLoginModal(false);
+      setMessage('Bienvenido');
     }
   };
 
-  const handleGoogleError = () => {
-    console.log('Login Fallido');
+  const stats = {
+    withPower: lights.filter(l => l.has_power).length,
+    withoutPower: lights.filter(l => !l.has_power).length,
   };
 
   return (
-    <div className="login-container">
-      <div className="login-card">
-        <h1>Light Mapper</h1>
-        <p>Reporta y consulta el estado de luz en tu zona</p>
-        
-        <GoogleLogin
-          client_id="TU_CLIENT_ID.apps.googleusercontent.com"
-          onSuccess={handleGoogleSuccess}
-          onError={handleGoogleError}
-          useOneTap
-          theme="filled_blue"
-          size="large"
-          shape="pill"
-        />
-        
-        <div className="info-section">
-          <h3>¿Por qué aportar tus datos?</h3>
-          <ul>
-            <li>Ayudas a tu comunidad</li>
-            <li>Información en tiempo real</li>
-            <li>Sin comprometer tu privacidad</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default LoginPage;
-```
-
-#### HomePage.jsx (Dashboard Principal)
-
-```jsx
-// src/pages/HomePage.jsx
-import { useState, useEffect } from 'react';
-import api from '../services/api';
-import { useAuth } from '../hooks/useAuth';
-import { Link } from 'react-router-dom';
-import './HomePage.css';
-
-const HomePage = () => {
-  const { user } = useAuth();
-  const [lights, setLights] = useState([]);
-  const [stats, setStats] = useState({ withPower: 0, withoutPower: 0, total: 0 });
-
-  useEffect(() => {
-    loadLights();
-  }, []);
-
-  const loadLights = async () => {
-    try {
-      const response = await api.get('/api/v1/users/lights/');
-      setLights(response.data);
-      
-      const withPower = response.data.filter(l => l.has_power).length;
-      setStats({
-        withPower,
-        withoutPower: response.data.length - withPower,
-        total: response.data.length,
-      });
-    } catch (error) {
-      console.error('Error cargando luces:', error);
-    }
-  };
-
-  return (
-    <div className="home-container">
-      <header className="home-header">
-        <h1>Light Mapper</h1>
-        <nav>
-          <Link to="/">Inicio</Link>
-          <Link to="/map">Mapa</Link>
-          <Link to="/profile">Perfil</Link>
-        </nav>
-      </header>
-
-      <div className="stats-grid">
-        <div className="stat-card green">
-          <span className="stat-number">{stats.withPower}</span>
-          <span className="stat-label">Con Luz</span>
-        </div>
-        <div className="stat-card red">
-          <span className="stat-number">{stats.withoutPower}</span>
-          <span className="stat-label">Sin Luz</span>
-        </div>
-        <div className="stat-card gray">
-          <span className="stat-number">{stats.total}</span>
-          <span className="stat-label">Total</span>
-        </div>
-      </div>
-
-      {!user && (
-        <div className="cta-banner">
-          <h2>¿Tienes luz?</h2>
-          <p>Inicia sesión para reportar tu estado y ayudar a tu comunidad</p>
-          <Link to="/login" className="btn-primary">Reportar Ahora</Link>
-        </div>
-      )}
-
-      {user && !user.latitude && (
-        <div className="setup-banner">
-          <h2>Configura tu ubicación</h2>
-          <p>Para reportar tu estado de luz, primero configura tu ubicación</p>
-          <Link to="/profile" className="btn-primary">Ir al Perfil</Link>
-        </div>
-      )}
-
-      <div className="lights-list">
-        <h2>Reportes Recientes</h2>
-        {lights.slice(0, 10).map((light, index) => (
-          <div key={index} className={`light-item ${light.has_power ? 'on' : 'off'}`}>
-            <div className="light-status">
-              {light.has_power ? '💡' : '🔌'}
-            </div>
-            <div className="light-info">
-              <span className="status-text">
-                {light.has_power ? 'Con Luz' : 'Sin Luz'}
-              </span>
-              <span className="light-coords">
-                {light.latitude}, {light.longitude}
-              </span>
-              <span className="light-time">
-                Actualizado: {new Date(light.last_power_update).toLocaleString()}
-              </span>
-            </div>
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <div className="map-page">
+        <header className="header">
+          <h1>💡 Light Mapper</h1>
+          <div className="header-actions">
+            {user ? (
+              <button onClick={logout} className="btn-user">
+                <span className="user-name">{user.first_name || user.email}</span>
+                <span className="logout-icon">↩</span>
+              </button>
+            ) : (
+              <button onClick={() => setShowLoginModal(true)} className="btn-login">
+                Iniciar Sesión
+              </button>
+            )}
           </div>
-        ))}
-      </div>
-    </div>
-  );
-};
+        </header>
 
-export default HomePage;
-```
-
-#### ProfilePage.jsx (Configuración de Ubicación)
-
-```jsx
-// src/pages/ProfilePage.jsx
-import { useState } from 'react';
-import { useAuth } from '../hooks/useAuth';
-import { useNavigate } from 'react-router-dom';
-import './ProfilePage.css';
-
-const ProfilePage = () => {
-  const { user, logout, updateProfile } = useAuth();
-  const navigate = useNavigate();
-  
-  const [formData, setFormData] = useState({
-    latitude: user?.latitude || '',
-    longitude: user?.longitude || '',
-    has_power: user?.has_power ?? null,
-  });
-  
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState(null);
-
-  const getLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setFormData(prev => ({
-            ...prev,
-            latitude: position.coords.latitude.toFixed(7),
-            longitude: position.coords.longitude.toFixed(7),
-          }));
-        },
-        (error) => {
-          console.error('Error de geolocalización:', error);
-          setMessage('No se pudo obtener tu ubicación');
-        }
-      );
-    } else {
-      setMessage('Tu navegador no soporta geolocalización');
-    }
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    
-    const result = await updateProfile({
-      latitude: parseFloat(formData.latitude),
-      longitude: parseFloat(formData.longitude),
-      has_power: formData.has_power,
-    });
-    
-    if (result.success) {
-      setMessage('¡Perfil actualizado!');
-      setTimeout(() => navigate('/'), 1500);
-    } else {
-      setMessage('Error al actualizar');
-    }
-    
-    setLoading(false);
-  };
-
-  return (
-    <div className="profile-container">
-      <header className="profile-header">
-        <h1>Mi Perfil</h1>
-        <button onClick={logout} className="btn-logout">Cerrar Sesión</button>
-      </header>
-
-      <form onSubmit={handleSubmit} className="profile-form">
-        <div className="user-info">
-          <img 
-            src={`https://ui-avatars.com/api/?name=${user?.first_name || user?.email}`} 
-            alt="Avatar"
-          />
-          <div>
-            <h2>{user?.first_name} {user?.last_name}</h2>
-            <p>{user?.email}</p>
+        <div className="stats-bar">
+          <div className="stat">
+            <span className="stat-icon green">●</span>
+            <span className="stat-value">{stats.withPower}</span>
+            <span className="stat-label">Con luz</span>
+          </div>
+          <div className="stat">
+            <span className="stat-icon red">●</span>
+            <span className="stat-value">{stats.withoutPower}</span>
+            <span className="stat-label">Sin luz</span>
           </div>
         </div>
 
-        <div className="form-section">
-          <h3>📍 Mi Ubicación</h3>
-          <p className="section-desc">
-            Tu ubicación se usa para mostrar tu estado de luz en el mapa
-          </p>
-          
-          <div className="location-inputs">
-            <div className="input-group">
-              <label>Latitud</label>
-              <input
-                type="text"
-                value={formData.latitude}
-                onChange={(e) => setFormData(prev => ({...prev, latitude: e.target.value}))}
-                placeholder="23.1136000"
-              />
-            </div>
-            <div className="input-group">
-              <label>Longitud</label>
-              <input
-                type="text"
-                value={formData.longitude}
-                onChange={(e) => setFormData(prev => ({...prev, longitude: e.target.value}))}
-                placeholder="-82.3666000"
-              />
-            </div>
-          </div>
-          
-          <button type="button" onClick={getLocation} className="btn-gps">
-            📍 Usar mi ubicación actual
-          </button>
-        </div>
+        {message && (
+          <div className="toast-message">{message}</div>
+        )}
 
-        <div className="form-section">
-          <h3>⚡ Estado de Luz</h3>
-          <p className="section-desc">
-            ¿Tienes luz actualmente en tu ubicación?
-          </p>
-          
-          <div className="power-options">
-            <button
-              type="button"
-              className={`power-btn ${formData.has_power === true ? 'active' : ''}`}
-              onClick={() => setFormData(prev => ({...prev, has_power: true}))}
+        <div className="map-container">
+          {mapCenter && (
+            <MapContainer
+              center={mapCenter}
+              zoom={14}
+              className="map"
+              onClick={handleMapClick}
             >
-              💡 Tengo Luz
-            </button>
-            <button
-              type="button"
-              className={`power-btn off ${formData.has_power === false ? 'active' : ''}`}
-              onClick={() => setFormData(prev => ({...prev, has_power: false}))}
-            >
-              🔌 Sin Luz
-            </button>
+              <TileLayer
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                attribution='© OpenStreetMap'
+              />
+              
+              {lights.map((light, index) => (
+                <CircleMarker
+                  key={index}
+                  center={[light.latitude, light.longitude]}
+                  pathOptions={{
+                    color: light.has_power ? '#22c55e' : '#ef4444',
+                    fillColor: light.has_power ? '#22c55e' : '#ef4444',
+                    fillOpacity: 0.7,
+                  }}
+                  radius={12}
+                >
+                  <Popup>
+                    <div className="popup-content">
+                      <strong>{light.has_power ? '💡 Con Luz' : '🔌 Sin Luz'}</strong>
+                      <small>Hace {formatTimeAgo(light.last_power_update)}</small>
+                    </div>
+                  </Popup>
+                </CircleMarker>
+              ))}
+
+              {user?.latitude && user?.longitude && (
+                <CircleMarker
+                  center={[user.latitude, user.longitude]}
+                  pathOptions={{
+                    color: '#3b82f6',
+                    fillColor: '#3b82f6',
+                    fillOpacity: 0.9,
+                  }}
+                  radius={15}
+                >
+                  <Popup>
+                    <div className="popup-content">
+                      <strong>📍 Tu ubicación</strong>
+                      <br />
+                      <span>{user.has_power ? '💡 Tienes luz' : '🔌 Sin luz'}</span>
+                    </div>
+                  </Popup>
+                </CircleMarker>
+              )}
+            </MapContainer>
+          )}
+        </div>
+
+        {user && isSettingLocation && (
+          <div className="instructions-overlay">
+            <div className="instructions-card">
+              <h3>📍 Selecciona tu ubicación</h3>
+              <p>Toca en el mapa donde está tu casa</p>
+              <button onClick={() => setIsSettingLocation(false)} className="btn-cancel">
+                Cancelar
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
-        {message && <div className="message">{message}</div>}
-
-        <button type="submit" className="btn-submit" disabled={loading}>
-          {loading ? 'Guardando...' : 'Guardar Cambios'}
-        </button>
-      </form>
-    </div>
-  );
-};
-
-export default ProfilePage;
-```
-
-#### MapPage.jsx (Visualización en Mapa)
-
-```jsx
-// src/pages/MapPage.jsx
-import { useState, useEffect } from 'react';
-import api from '../services/api';
-import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
-import './MapPage.css';
-
-const MapPage = () => {
-  const [lights, setLights] = useState([]);
-
-  useEffect(() => {
-    loadLights();
-  }, []);
-
-  const loadLights = async () => {
-    try {
-      const response = await api.get('/api/v1/users/lights/');
-      setLights(response.data);
-    } catch (error) {
-      console.error('Error cargando luces:', error);
-    }
-  };
-
-  const center = lights.length > 0 
-    ? [lights[0].latitude, lights[0].longitude] 
-    : [23.1136, -82.3666]; // Cuba por defecto
-
-  return (
-    <div className="map-container">
-      <header className="map-header">
-        <h1>Mapa de Luz</h1>
-        <div className="legend">
-          <span className="legend-item green">● Con Luz</span>
-          <span className="legend-item red">● Sin Luz</span>
-        </div>
-      </header>
-      
-      <MapContainer center={center} zoom={10} className="map">
-        <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution='© OpenStreetMap'
-        />
-        
-        {lights.map((light, index) => (
-          <CircleMarker
-            key={index}
-            center={[light.latitude, light.longitude]}
-            pathOptions={{
-              color: light.has_power ? '#22c55e' : '#ef4444',
-              fillColor: light.has_power ? '#22c55e' : '#ef4444',
-              fillOpacity: 0.7,
-            }}
-            radius={10}
-          >
-            <Popup>
-              <div className="map-popup">
-                <strong>{light.has_power ? '💡 Con Luz' : '🔌 Sin Luz'}</strong>
-                <br />
-                <small>
-                  Actualizado: {new Date(light.last_power_update).toLocaleString()}
-                </small>
+        <div className="bottom-panel">
+          {user?.latitude && user?.longitude ? (
+            <div className="power-status-card">
+              <div className="power-info">
+                <span className="power-icon">
+                  {user.has_power ? '💡' : '🔌'}
+                </span>
+                <span className="power-text">
+                  {user.has_power ? 'Tienes luz' : 'Sin luz'}
+                </span>
               </div>
-            </Popup>
-          </CircleMarker>
-        ))}
-      </MapContainer>
-    </div>
+              <button
+                onClick={togglePower}
+                className={`btn-power ${user.has_power ? 'off' : 'on'}`}
+                disabled={loading}
+              >
+                {loading ? '...' : user.has_power ? 'Apagar' : 'Encender'}
+              </button>
+            </div>
+          ) : (
+            <div className="setup-card">
+              <p>📍 Configura tu ubicación para reportar</p>
+              <button
+                onClick={() => setIsSettingLocation(true)}
+                className="btn-setup"
+              >
+                Seleccionar en mapa
+              </button>
+            </div>
+          )}
+        </div>
+
+        {showLoginModal && (
+          <div className="modal-overlay" onClick={() => setShowLoginModal(false)}>
+            <div className="modal-content" onClick={e => e.stopPropagation()}>
+              <button className="modal-close" onClick={() => setShowLoginModal(false)}>
+                ✕
+              </button>
+              <h2>Iniciar Sesión</h2>
+              <p>Necesitas iniciar sesión para reportar tu estado de luz</p>
+              <GoogleLogin
+                onSuccess={handleGoogleSuccess}
+                onError={() => setMessage('Error al iniciar sesión')}
+                useOneTap
+                theme="filled_blue"
+                size="large"
+                shape="rectangular"
+              />
+              <div className="privacy-note">
+                <small>🔒 Solo usamos tu email para crear tu cuenta. Nunca compartimos tu información.</small>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </GoogleOAuthProvider>
   );
+};
+
+const formatTimeAgo = (dateString) => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const minutes = Math.floor((now - date) / 60000);
+  
+  if (minutes < 1) return 'ahora';
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h`;
+  return `${Math.floor(hours / 24)} días`;
 };
 
 export default MapPage;
 ```
 
-### 6. Estilos CSS (App.css - Mobile First)
+### 7. Estilos CSS (Mobile First)
 
 ```css
-/* src/App.css */
+/* src/index.css */
 :root {
   --primary: #3b82f6;
-  --primary-dark: #2563eb;
   --success: #22c55e;
   --danger: #ef4444;
-  --gray-100: #f3f4f6;
-  --gray-200: #e5e7eb;
-  --gray-500: #6b7280;
-  --gray-800: #1f2937;
+  --dark: #1f2937;
+  --gray: #6b7280;
+  --light: #f3f4f6;
+  --white: #ffffff;
 }
 
 * {
-  box-sizing: border-box;
   margin: 0;
   padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
 }
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: var(--gray-100);
-  color: var(--gray-800);
-  line-height: 1.5;
+  background: var(--light);
+  color: var(--dark);
 }
 
-.app {
-  min-height: 100vh;
+/* MapPage.css */
+.map-page {
+  height: 100%;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
-/* Mobile First - todas las pantallas menores a 768px */
-.container {
-  padding: 1rem;
-  max-width: 100%;
+.header {
+  background: var(--white);
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  z-index: 1000;
 }
 
-/* Tablet */
-@media (min-width: 768px) {
-  .container {
-    max-width: 720px;
-    margin: 0 auto;
-    padding: 2rem;
-  }
-}
-
-/* Desktop */
-@media (min-width: 1024px) {
-  .container {
-    max-width: 960px;
-  }
-}
-
-/* Header */
-header {
-  background: white;
-  padding: 1rem;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-  position: sticky;
-  top: 0;
-  z-index: 100;
-}
-
-header h1 {
+.header h1 {
   font-size: 1.25rem;
   color: var(--primary);
 }
 
-nav {
-  display: flex;
-  gap: 1rem;
-  margin-top: 0.5rem;
-}
-
-nav a {
-  color: var(--gray-500);
-  text-decoration: none;
-  font-size: 0.875rem;
-}
-
-nav a:hover {
-  color: var(--primary);
-}
-
-/* Cards */
-.card {
-  background: white;
-  border-radius: 0.75rem;
-  padding: 1.5rem;
-  margin: 1rem 0;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-}
-
-/* Buttons */
-.btn-primary {
+.btn-login {
   background: var(--primary);
   color: white;
-  padding: 0.75rem 1.5rem;
   border: none;
-  border-radius: 0.5rem;
+  padding: 8px 16px;
+  border-radius: 20px;
   font-weight: 600;
   cursor: pointer;
-  text-decoration: none;
-  display: inline-block;
 }
 
-.btn-primary:hover {
-  background: var(--primary-dark);
+.btn-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--light);
+  border: none;
+  padding: 8px 16px;
+  border-radius: 20px;
+  cursor: pointer;
 }
 
-/* Stats Grid */
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.75rem;
-  margin: 1rem 0;
+.user-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.stat-card {
-  background: white;
-  padding: 1rem;
-  border-radius: 0.75rem;
-  text-align: center;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+.logout-icon {
+  color: var(--gray);
 }
 
-.stat-card.green { border-left: 4px solid var(--success); }
-.stat-card.red { border-left: 4px solid var(--danger); }
-.stat-card.gray { border-left: 4px solid var(--gray-500); }
+/* Stats Bar */
+.stats-bar {
+  background: var(--white);
+  display: flex;
+  justify-content: space-around;
+  padding: 12px;
+  border-bottom: 1px solid var(--light);
+}
 
-.stat-number {
-  display: block;
-  font-size: 2rem;
+.stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stat-icon {
+  font-size: 12px;
+}
+
+.stat-icon.green { color: var(--success); }
+.stat-icon.red { color: var(--danger); }
+
+.stat-value {
   font-weight: 700;
+  font-size: 1.1rem;
 }
 
 .stat-label {
-  font-size: 0.75rem;
-  color: var(--gray-500);
+  font-size: 0.85rem;
+  color: var(--gray);
 }
 
-/* Light Items */
-.light-item {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 1rem;
-  background: white;
-  border-radius: 0.5rem;
-  margin: 0.5rem 0;
+/* Toast Message */
+.toast-message {
+  position: fixed;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--dark);
+  color: white;
+  padding: 12px 24px;
+  border-radius: 25px;
+  font-size: 0.9rem;
+  z-index: 1001;
+  animation: fadeInOut 3s ease;
 }
 
-.light-item.on { border-left: 4px solid var(--success); }
-.light-item.off { border-left: 4px solid var(--danger); }
-
-.light-status {
-  font-size: 1.5rem;
-}
-
-.light-info {
-  flex: 1;
-}
-
-.status-text {
-  font-weight: 600;
-  display: block;
-}
-
-.light-coords, .light-time {
-  font-size: 0.75rem;
-  color: var(--gray-500);
-}
-
-/* Login Page */
-.login-container {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
-}
-
-.login-card {
-  background: white;
-  padding: 2rem;
-  border-radius: 1rem;
-  text-align: center;
-  max-width: 400px;
-  width: 100%;
-}
-
-.login-card h1 {
-  color: var(--primary);
-  margin-bottom: 0.5rem;
-}
-
-.login-card p {
-  color: var(--gray-500);
-  margin-bottom: 2rem;
-}
-
-.info-section {
-  margin-top: 2rem;
-  text-align: left;
-  padding-top: 1rem;
-  border-top: 1px solid var(--gray-200);
-}
-
-.info-section h3 {
-  font-size: 0.875rem;
-  margin-bottom: 0.5rem;
-}
-
-.info-section ul {
-  list-style: none;
-  font-size: 0.875rem;
-  color: var(--gray-500);
-}
-
-.info-section li::before {
-  content: '✓ ';
-  color: var(--success);
-}
-
-/* Profile Form */
-.profile-form {
-  padding: 1rem;
-}
-
-.user-info {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin-bottom: 2rem;
-}
-
-.user-info img {
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-}
-
-.form-section {
-  background: white;
-  padding: 1.5rem;
-  border-radius: 0.75rem;
-  margin-bottom: 1rem;
-}
-
-.form-section h3 {
-  margin-bottom: 0.5rem;
-}
-
-.section-desc {
-  font-size: 0.875rem;
-  color: var(--gray-500);
-  margin-bottom: 1rem;
-}
-
-.input-group {
-  margin-bottom: 1rem;
-}
-
-.input-group label {
-  display: block;
-  font-size: 0.875rem;
-  font-weight: 500;
-  margin-bottom: 0.25rem;
-}
-
-.input-group input {
-  width: 100%;
-  padding: 0.75rem;
-  border: 1px solid var(--gray-200);
-  border-radius: 0.5rem;
-  font-size: 1rem;
-}
-
-.power-options {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.power-btn {
-  flex: 1;
-  padding: 1rem;
-  border: 2px solid var(--gray-200);
-  border-radius: 0.5rem;
-  background: white;
-  cursor: pointer;
-  font-weight: 500;
-}
-
-.power-btn.active {
-  border-color: var(--success);
-  background: rgba(34, 197, 94, 0.1);
-}
-
-.power-btn.off.active {
-  border-color: var(--danger);
-  background: rgba(239, 68, 68, 0.1);
+@keyframes fadeInOut {
+  0%, 100% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+  10%, 90% { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
 /* Map */
 .map-container {
-  height: calc(100vh - 60px);
+  flex: 1;
   position: relative;
-}
-
-.map-header {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  background: white;
-  padding: 0.75rem 1rem;
-  z-index: 1000;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
 }
 
 .map {
@@ -964,25 +699,240 @@ nav a:hover {
   width: 100%;
 }
 
-.legend {
-  display: flex;
-  gap: 1rem;
-  font-size: 0.75rem;
+.leaflet-container {
+  height: 100%;
+  width: 100%;
 }
 
-.legend-item.green { color: var(--success); }
-.legend-item.red { color: var(--danger); }
+/* Popup */
+.popup-content {
+  text-align: center;
+}
+
+.popup-content strong {
+  display: block;
+  font-size: 1rem;
+  margin-bottom: 4px;
+}
+
+.popup-content small {
+  color: var(--gray);
+  font-size: 0.8rem;
+}
+
+/* Instructions Overlay */
+.instructions-overlay {
+  position: fixed;
+  bottom: 120px;
+  left: 16px;
+  right: 16px;
+  z-index: 1000;
+}
+
+.instructions-card {
+  background: var(--dark);
+  color: white;
+  padding: 16px;
+  border-radius: 12px;
+  text-align: center;
+}
+
+.instructions-card h3 {
+  margin-bottom: 8px;
+}
+
+.instructions-card p {
+  font-size: 0.9rem;
+  opacity: 0.9;
+  margin-bottom: 12px;
+}
+
+.btn-cancel {
+  background: transparent;
+  border: 1px solid white;
+  color: white;
+  padding: 8px 24px;
+  border-radius: 20px;
+  cursor: pointer;
+}
+
+/* Bottom Panel */
+.bottom-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 16px;
+  z-index: 1000;
+}
+
+.power-status-card {
+  background: var(--white);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+}
+
+.power-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.power-icon {
+  font-size: 2rem;
+}
+
+.power-text {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.btn-power {
+  padding: 14px 32px;
+  border: none;
+  border-radius: 25px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.btn-power:active {
+  transform: scale(0.95);
+}
+
+.btn-power.on {
+  background: var(--success);
+  color: white;
+}
+
+.btn-power.off {
+  background: var(--danger);
+  color: white;
+}
+
+.setup-card {
+  background: var(--white);
+  border-radius: 16px;
+  padding: 20px;
+  text-align: center;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+}
+
+.setup-card p {
+  margin-bottom: 12px;
+  color: var(--gray);
+}
+
+.btn-setup {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 14px 32px;
+  border-radius: 25px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 16px;
+}
+
+.modal-content {
+  background: var(--white);
+  border-radius: 20px;
+  padding: 32px 24px;
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+  position: relative;
+}
+
+.modal-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: var(--gray);
+}
+
+.modal-content h2 {
+  margin-bottom: 8px;
+}
+
+.modal-content p {
+  color: var(--gray);
+  margin-bottom: 24px;
+}
+
+.privacy-note {
+  margin-top: 20px;
+  padding: 12px;
+  background: var(--light);
+  border-radius: 8px;
+}
+
+.privacy-note small {
+  color: var(--gray);
+}
+
+/* Desktop Adjustments */
+@media (min-width: 768px) {
+  .bottom-panel {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: 400px;
+  }
+  
+  .instructions-overlay {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: 400px;
+  }
+}
 ```
 
-### 7. Instalación de Dependencias Adicionales
+### 8. App.jsx
 
-```bash
-npm install react-router-dom axios leaflet react-leaflet @react-oauth/google
+```jsx
+// src/App.jsx
+import { AuthProvider } from './hooks/useAuth';
+import MapPage from './pages/MapPage';
+import './App.css';
+
+function App() {
+  return (
+    <AuthProvider>
+      <MapPage />
+    </AuthProvider>
+  );
+}
+
+export default App;
 ```
 
----
-
-## Variables de Entorno
+### 9. Variables de Entorno
 
 ```bash
 # .env
@@ -997,37 +947,41 @@ VITE_GOOGLE_CLIENT_ID=tu-client-id.apps.googleusercontent.com
 ```
 1. Usuario abre la app
    ↓
-2. Ve pantalla de login con Google (o ve mapa directamente si es público)
+2. Ve el mapa inmediatamente centrado en su ubicación GPS
    ↓
-3. Inicia sesión con Google
+3. Ve puntos verdes (con luz) y rojos (sin luz) en el mapa
    ↓
-4. Se le pide configurar ubicación (si no la tiene)
+4. Quiere reportar → Toca "Iniciar Sesión"
    ↓
-5. Reporta si tiene luz o no
+5. Se loguea con Google
    ↓
-6. Puede ver el mapa con todos los reportes
+6. Toca "Seleccionar en mapa" 
    ↓
-7. Puede actualizar su estado en cualquier momento
+7. Toca en el mapa donde está su casa
+   ↓
+8. Toca el botón "Encender" o "Apagar"
+   ↓
+9. Su punto aparece en el mapa
+   ↓
+10. Puede cambiar su estado en cualquier momento tocando el botón
 ```
 
 ---
 
-## Preguntas Frecuentes
+## Dependencias
 
-### ¿Mis datos son privados?
-Solo se comparte tu latitud, longitud y estado de luz. Tu email y nombre NO se muestran publicly.
-
-### ¿Necesito cuenta para ver el mapa?
-No. El mapa de luces es público y no requiere autenticación.
-
-### ¿Cada vez que cambio mi estado tengo que reportar?
-Sí. El sistema no automatiza nada. Tu reporte es manual para mayor precisión.
-
-### ¿Puedo ver quién reporta qué?
-Solo los administradores pueden ver los datos completos de cada usuario.
+```bash
+npm install axios react-router-dom leaflet react-leaflet @react-oauth/google
+```
 
 ---
 
-## Soporte
+## Configuración del Backend
 
-Para problemas o sugerencias, contactar al equipo de desarrollo.
+ Asegúrate de que en `.env` del backend:
+
+```env
+GOOGLE_CLIENT_ID=tu-client-id.apps.googleusercontent.com
+DEBUG=False
+ALLOWED_HOSTS=tu-dominio.com
+```
