@@ -5,14 +5,21 @@ User = get_user_model()
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
+    role = serializers.SerializerMethodField()
+    
     class Meta:
         model = User
         fields = [
             'id', 'email', 'username', 'first_name', 'last_name',
             'latitude', 'longitude', 'has_power', 'last_power_update',
-            'created_at', 'updated_at'
+            'created_at', 'updated_at', 'role'
         ]
-        read_only_fields = ['id', 'email', 'created_at', 'updated_at', 'last_power_update']
+        read_only_fields = ['id', 'email', 'created_at', 'updated_at', 'last_power_update', 'role']
+    
+    def get_role(self, obj):
+        if obj.is_superuser:
+            return 'admin'
+        return 'user'
 
 
 class LightStatusPublicSerializer(serializers.ModelSerializer):
