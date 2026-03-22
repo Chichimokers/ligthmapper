@@ -93,7 +93,7 @@ def profile(request):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-@api_view(['POST'])
+@api_view(['GET'])
 @permission_classes([AllowAny])
 def lights_list(request):
     users = User.objects.exclude(
