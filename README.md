@@ -1,20 +1,18 @@
 # ligthmapper
 
-## Tecnologias
-- Docker
-- Dockerfile
-- Python
+## Lenguajes
+- {'size': 1076, 'node': {'name': 'Dockerfile'}}
+- {'size': 14359, 'node': {'name': 'Python'}}
 
 ## Instalacion
 
 ```bash
-pip install -r requirements.txt
-python main.py
+git clone https://github.com/Chichimokers/ligthmapper.git
+cd ligthmapper
+pip install -r requirements.txt  # o npm install
+python run.py  # o npm run dev
 ```
 
-## Descripcion
-
-Proyecto ligthmapper.
-
 ---
-(c) 2026 Chichimokers -- https://github.com/Chichimokers/ligthmapper
+
+(c) 2026 Chichimokers - Proyecto Privado
