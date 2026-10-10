@@ -61,7 +61,6 @@ db.sqlite3-journal
 /staticfiles/
 
 # Environments
-.env
 .venv
 env/
 venv/
@@ -71,7 +70,6 @@ venv.bak/
 
 # IDEs
 .idea/
-.vscode/
 *.swp
 *.swo
 
@@ -80,3 +78,5 @@ venv.bak/
 
 # Static files
 /static/
+config.bat
+node_modules
